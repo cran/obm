@@ -1,0 +1,11 @@
+---
+project: my-project
+name: bombina
+environment:
+- type: R
+  version: "4.02"
+- type: python
+  version: "2.8"
+mainscript: script/bombina.R
+build_docker: false
+...

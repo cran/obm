@@ -1,0 +1,3 @@
+uid,species,eov_x,eov_y,quantity,male,female,state,observer,observer2,observer3,identifier,data_provider,date,method,comment,vedettseg,natura2000,magyar,taxon
+172619,Cerambyx cerdo,679090,248998,1,\N,\N,\N,John Doe,\N,\N,\N,\N,2010-06-24 00:00:00,Állomány felmérése terepi megfigyelés alapján,döglött,Védett,"HD II, IV",nagy hőscincér,gerinctelenek
+178939,Cricetus cricetus,590390,247791,2,\N,\N,"Lyuk, üreg, telelőkamra",Tukka Pekka,\N,\N,Isabelle Expert,\N,2007-07-02 00:00:00,Állomány felmérése terepi megfigyelés alapján,"elütött állat, majd 10-15 aktív lyuk lucernaföldön",Védett_8mell,HD V,hörcsög,emlősök

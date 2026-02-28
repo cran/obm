@@ -1,0 +1,8 @@
+---
+project: my-project
+name: dhte-mmm
+environment:
+- type: R
+  version: latest
+mainscript: mmm.R
+...
