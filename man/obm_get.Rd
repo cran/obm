@@ -65,8 +65,8 @@ data <- obm_get('get_data',
                   faj = list(iequals = "asio otus")
                 ))
 
-# get 100 rows with offset 0
-data <- obm_get('get_data', 'limit=100:0')
+# get 1000 rows with offset 0 - using control_condition
+data <- obm_get('get_data', 'limit=1000:0')
 
 # get list of available forms
 data <- obm_get('get_form_list')

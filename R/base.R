@@ -180,8 +180,9 @@ obm_init <- function (project='',
     } else {
         # default scopes
         set_obm("scope", c('get_form','get_profile','get_data','get_specieslist',
-                       'get_history','set_rules','get_report','put_data',
-                       'get_tables','pg_user','use_repo','computation','tracklog'))
+                           'get_history','set_rules','get_report','put_data',
+                           'get_tables','describe_table','get_public_tables','describe_public_table',
+                           'pg_user','use_repo','computation','tracklog'))
     }
 
     # default client_id
@@ -224,13 +225,18 @@ obm_auth <- function (username='',
         return(invisible(FALSE))
     }
 
+    set_obm("is_public", FALSE)
     token_time <- get_obm("time")
     token <- get_obm("token")
     scope    = get_obm("scope")
     client_id = get_obm("client_id", "R")
 
     # --- TOKEN REFRESH LOGiC ---
-    if (!is.null(token) && !is.null(token_time) && username == '' && password == '') {
+    if (!is.null(token) && 
+        !is.null(token_time) && 
+        username == '' && 
+        password == '') {
+
         expiry <- token_time + token$expires_in
         if (length(expiry) && expiry < unclass(Sys.time())) {
             if (verbose) message("Token expired, refreshing...")
@@ -279,7 +285,7 @@ obm_auth <- function (username='',
         
     j <- httr::content(h, "parsed", "application/json")
     if (verbose) {
-            message(j)
+        message(j)
     }
     
     if (!is.null(j$access_token)) {
@@ -290,6 +296,7 @@ obm_auth <- function (username='',
     } else {
         rm(list = c("token", "time"), envir = obm_env())
         message("Authentication failed (no access token returned).")
+        message("Add verbose option, to get more detailed error messages.")
         return(FALSE)      
     }
 }
@@ -464,153 +471,169 @@ obm_get_graphql <- function(scope,
                             table, 
                             retry = TRUE) {
 
-        # Schema and Table defaults
-        # The user recently changed default db_schema to "public" but we should
-        # allow it to be overridden or default to the project name.
-        db_schema <- "public"
-        data_table <- table
-        explicit_columns <- NULL
+    # Schema and Table defaults
+    # The user recently changed default db_schema to "public" but we should
+    # allow it to be overridden or default to the project name.
+    db_schema <- "public"
+    data_table <- table
+    explicit_columns <- NULL
 
-        if (is.list(condition)) {
-            if ("schema" %in% names(condition)) {
-                db_schema <- condition$schema
-                condition$schema <- NULL
-            }
-            if ("table" %in% names(condition)) {
-                data_table <- condition$table
-                condition$table <- NULL
-            }
-            if ("fields" %in% names(condition)) {
-                # If it is *, we query all fields
-                if (is.character(condition$fields) && length(condition$fields) == 1 && condition$fields == "*") {
+    is_public <- get_obm("is_public", default = FALSE)
 
-                    # query the table structure
+    if (is.list(condition)) {
+        if ("schema" %in% names(condition)) {
+            db_schema <- condition$schema
+            condition$schema <- NULL
+        }
+        if ("table" %in% names(condition)) {
+            data_table <- condition$table
+            condition$table <- NULL
+        }
+        if ("fields" %in% names(condition)) {
+            # If it is *, we query all fields
+            if (is.character(condition$fields) && length(condition$fields) == 1 && condition$fields == "*") {
+
+                # query the table structure
+                if (is_public) {
                     tables_info <- obm_get(
-                        'get_tables',
+                        'describe_public_table',
                         condition = list(schema = db_schema, table = data_table)
                     )
-
-                    mandatory_fields <- c("obm_id", "obm_uploading_id")
-                    explicit_columns <- vapply(tables_info$fields, function(x) x$name, character(1))
-                    explicit_columns <- unique(c(mandatory_fields, explicit_columns))
-
-                } else if (is.list(condition$fields)) {
-                    # If user passed fields as a result of get_tables, it might be a list of lists
-                    explicit_columns <- vapply(condition$fields, function(x) x$name, character(1))
                 } else {
-                    explicit_columns <- condition$fields
+                    tables_info <- obm_get(
+                        'describe_table',
+                        condition = list(schema = db_schema, table = data_table)
+                    )
                 }
-                condition$fields <- NULL
+
+                mandatory_fields <- c("obm_id", "obm_uploading_id")
+                explicit_columns <- jsonlite::fromJSON(tables_info)$fields$name
+                explicit_columns <- unique(c(mandatory_fields, explicit_columns))
+
+            } else if (is.list(condition$fields)) {
+                # If user passed fields as a result of get_tables, it might be a list of lists
+                explicit_columns <- vapply(condition$fields, function(x) x$name, character(1))
+            } else {
+                explicit_columns <- condition$fields
             }
-        }
-
-        # Parse control for limit/offset
-        p_control <- obm_parse_control(control_condition)
-
-        # Parse filters
-        graphql_filters <- obm_parse_filters(condition)
-
-        # Fields: if control_condition is '*' or null, we want all fields.
-        # But GraphQL demands explicit fields.
-
-        if (!is.null(explicit_columns)) {
-            fields_block <- paste(explicit_columns, collapse = "\n")
-        } else {
-            # We need to fetch table columns first.
-            # Call /v3/data-tables/{schema}/{dataTable} to get columns
-
-            # Construct URL for table details
-            table_details_url <- paste0(url, "data-tables/", db_schema, "/", data_table)
-
-            h_td <- httr::GET(table_details_url, httr::add_headers(Authorization = token$access_token))
-            if (httr::status_code(h_td) == 200) {
-                td_content <- httr::content(h_td, "parsed")
-
-                columns <- tryCatch({
-                     vapply(td_content$columns, function(x) x$name, character(1))
-                }, error = function(e) {
-                    # Fallback fields if metadata fails
-                    c("obm_id")
-                })
-
-             # Construct query
-             if (length(columns) == 0 || columns == "") {
-                 warning("Could not retrieve table columns. Defaulting to 'obm_id'.")
-                 columns <- c("obm_id")
-             }
-             fields_block <- paste(columns, collapse = "\n")
+            condition$fields <- NULL
         }
     }
 
+    # Parse control for limit/offset
+    p_control <- obm_parse_control(control_condition)
+
+    # Parse filters
+    graphql_filters <- obm_parse_filters(condition)
+
+    # Fields: if control_condition is '*' or null, we want all fields.
+    # But GraphQL demands explicit fields.
+
+    if (!is.null(explicit_columns)) {
+    
+        fields_block <- paste(explicit_columns, collapse = "\n")
+    
+    } else {
+
+        if (is_public) {
+            tables_info <- obm_get(
+                'describe_public_table',
+                condition = list(schema = db_schema, table = data_table)
+            )
+        } else {
+            tables_info <- obm_get(
+                'describe_table',
+                condition = list(schema = db_schema, table = data_table)
+            )
+        }
+        mandatory_fields <- c("obm_id", "obm_uploading_id")
+        explicit_columns <- jsonlite::fromJSON(tables_info)$fields$name
+        explicit_columns <- unique(c(mandatory_fields, explicit_columns))
+        fields_block <- paste(explicit_columns, collapse = "\n")
+    }
+
     query_str <- sprintf(
-            'query { obmDataList(limit: %d, offset: %d%s) { items { %s } } }',
+        'query { obmDataList(limit: %d, offset: %d%s) { items { %s } } }',
+        p_control$limit,
+        p_control$offset,
+        if (!is.null(graphql_filters)) ", filters: $filters" else "",
+        fields_block
+    )
+
+    req_body <- list(
+        schema = db_schema,
+        table_name = data_table
+    )
+
+    if (!is.null(graphql_filters)) {
+        # We need to define variables in the query string if we use them
+        query_str <- sprintf(
+            'query GetData($filters: ObmDataFilterInput) { obmDataList(limit: %d, offset: %d, filters: $filters) { items { %s } } }',
             p_control$limit,
             p_control$offset,
-            if (!is.null(graphql_filters)) ", filters: $filters" else "",
             fields_block
         )
-
-        req_body <- list(
-            schema = db_schema,
-            table_name = data_table
+        req_body$query <- query_str
+        req_body$variables <- list(filters = graphql_filters)
+    } else {
+        # No variables needed
+        req_body$query <- sprintf(
+            'query { obmDataList(limit: %d, offset: %d) { items { %s } } }',
+            p_control$limit,
+            p_control$offset,
+            fields_block
         )
+    }
 
-        if (!is.null(graphql_filters)) {
-            # We need to define variables in the query string if we use them
-            query_str <- sprintf(
-                'query GetData($filters: ObmDataFilterInput) { obmDataList(limit: %d, offset: %d, filters: $filters) { items { %s } } }',
-                p_control$limit,
-                p_control$offset,
-                fields_block
-            )
-            req_body$query <- query_str
-            req_body$variables <- list(filters = graphql_filters)
-        } else {
-            # No variables needed
-            req_body$query <- sprintf(
-                'query { obmDataList(limit: %d, offset: %d) { items { %s } } }',
-                p_control$limit,
-                p_control$offset,
-                fields_block
-            )
-        }
+    if (scope == "get_public_data") {
+        target_url <- paste0(url, "get-public-data")
+        h <- httr::POST(target_url,
+                   body = req_body,
+                   encode = "json")
+    } else {
+        target_url <- paste0(url, "get-data")
+        h <- httr::POST(target_url,
+                   body = req_body,
+                   encode = "json",
+                   httr::add_headers(Authorization = token$access_token))
+    }
 
-        if (scope == "get_public_data") {
-            target_url <- paste0(url, "get-public-data")
-            h <- httr::POST(target_url,
-                       body = req_body,
-                       encode = "json")
-        } else {
-            target_url <- paste0(url, "get-data")
-            h <- httr::POST(target_url,
-                       body = req_body,
-                       encode = "json",
-                       httr::add_headers(Authorization = token$access_token))
-        }
+    if (httr::status_code(h) != 200) {
+        stop(sprintf(
+            "HTTP %s: %s",
+            httr::status_code(h),
+            httr::content(h, "text", encoding = "UTF-8")
+        ))
+        #return(paste("http error:", httr::status_code(h), httr::content(h, "text", encoding = "UTF-8")))
+    }
 
-        if (httr::status_code(h) != 200) {
-            return(paste("http error:", httr::status_code(h), httr::content(h, "text", encoding = "UTF-8")))
-        }
+    resp <- httr::content(h, "parsed")
 
-        resp <- httr::content(h, "parsed")
+    # Check for errors in GraphQL response
+    if (!is.null(resp$errors)) {
+        stop(sprintf(
+            "GraphQL Error:",
+            resp$errors[[1]]$message
+        ))
+        #return(paste("GraphQL Error:", resp$errors[[1]]$message))
+    }
 
-        # Check for errors in GraphQL response
-        if (!is.null(resp$errors)) {
-            return(paste("GraphQL Error:", resp$errors[[1]]$message))
-        }
+    # Extract items
+    items <- resp$data$obmDataList$items
 
-        # Extract items
-        items <- resp$data$obmDataList$items
-
-        # Convert to data frame
-        if (length(items) > 0) {
-             # items is list of lists, convert to DF
-             # Using jsonlite or manual binding
-             df <- jsonlite::fromJSON(jsonlite::toJSON(items))
-             return(df)
-        } else {
+    # Convert to data frame
+    if (length(items) > 0) {
+        # items is list of lists, convert to DF
+        # Using jsonlite or manual binding
+        items_clean <- lapply(items, function(x) {
+            x[sapply(x, is.null)] <- NA
+            x
+        })
+        df <- do.call(rbind, lapply(items_clean, as.data.frame))
+        return(df)
+    } else {
         return(data.frame())
-        }
+    }
 
     return(NULL)
 }
@@ -646,12 +669,35 @@ obm_get_rest_v3 <- function(scope,
         }
 
          if (httr::status_code(h) == 200) {
-             return(httr::content(h, "parsed"))
+             return(
+                  jsonlite::toJSON(
+                    httr::content(h, "parsed"),
+                    pretty = TRUE,
+                    auto_unbox = TRUE,
+                    null = "null"
+                  )
+                )
+             #return(httr::content(h, "parsed"))
          } else {
-             return(paste("http error:", httr::status_code(h), httr::content(h, "text", encoding = "UTF-8")))
+             #return(paste("http error:", httr::status_code(h), httr::content(h, "text", encoding = "UTF-8")))
+            stop(sprintf(
+                "HTTP %s: %s",
+                httr::status_code(h),
+                httr::content(h, "text", encoding = "UTF-8")
+            ))
          }
-    } else if (scope == 'get_tables') {
-         if (is.list(condition) && "schema" %in% names(condition) && "table" %in% names(condition)) {
+    } else if (scope == 'get_tables' || 
+               scope == 'get_public_tables' || 
+               scope == 'describe_table' || 
+               scope == 'describe_public_table') {
+
+         if (is.list(condition) && 
+             "schema" %in% names(condition) && 
+             "table" %in% names(condition)) {
+
+             # describe_table
+             # describe_public_table
+
             if ("column" %in% names(condition)) {
                 # /v3/data-tables/{schema}/{dataTable}/{column}/unique-values?limit=100&offset=0
                 target_url <- paste0(url, "data-tables/", condition$schema, "/", condition$table, "/", condition$column, "/unique-values")
@@ -671,17 +717,33 @@ obm_get_rest_v3 <- function(scope,
                 h <- httr::GET(target_url, httr::add_headers(Authorization = token$access_token))
             }
          } else {
+             # get_tables
+             # get_public_tables
+
             # /v3/data-tables
             target_url <- paste0(url, "data-tables")
             h <- httr::GET(target_url, httr::add_headers(Authorization = token$access_token))
          }
          if (httr::status_code(h) == 200) {
-             return(httr::content(h, "parsed"))
+             return(
+                  jsonlite::toJSON(
+                    httr::content(h, "parsed"),
+                    pretty = TRUE,
+                    auto_unbox = TRUE,
+                    null = "null"
+                  )
+                )
+             #return(httr::content(h, "parsed"))
          } else {
-             return(paste("http error:", httr::status_code(h), httr::content(h, "text", encoding = "UTF-8")))
+            stop(sprintf(
+                "HTTP %s: %s",
+                httr::status_code(h),
+                httr::content(h, "text", encoding = "UTF-8")
+            ))
+            # return(paste("http error:", httr::status_code(h), httr::content(h, "text", encoding = "UTF-8")))
          }
     } else {
-        return("Scope not supported in v3 REST API")
+        stop(sprintf("Scope not supported in v3 REST API"))
     }
 }
 
@@ -739,8 +801,8 @@ obm_get_rest_v3 <- function(scope,
 #'                   faj = list(iequals = "asio otus")
 #'                 ))
 #'
-#' # get 100 rows with offset 0
-#' data <- obm_get('get_data', 'limit=100:0')
+#' # get 1000 rows with offset 0 - using control_condition
+#' data <- obm_get('get_data', 'limit=1000:0')
 #'
 #' # get list of available forms
 #' data <- obm_get('get_form_list')
@@ -779,12 +841,26 @@ obm_get <- function (scope = '',
                      condition = NULL,
                      table = get_obm("project")) {
 
-    token <- get_obm("token")
     url   <- get_obm("pds_url")
     api_v <- get_obm("api_version", default = 3)
-    token_time <- get_obm("time")
+
+    parent_is_public <- get_obm("is_public", default = FALSE)
+    current_is_public <- identical(scope, "get_public_data")
+
+    is_public <- parent_is_public || current_is_public
+
+    set_obm("is_public", is_public)
+    on.exit(set_obm("is_public", parent_is_public), add = TRUE)
+
+    if (scope == 'get_public_data') {
+        token <- NULL
+        token_time <- NULL
+    } else {
+        token <- get_obm("token")
+        token_time <- get_obm("time")
+    }
     
-    if (is.null(token) || is.null(url)) {
+    if (is.null(url) || (!is_public && is.null(token))) {
         warning("OBM session not initialized. Run obm_init() first.")
         return(invisible(FALSE))
     }
@@ -795,14 +871,14 @@ obm_get <- function (scope = '',
     }
 
     # auto refreshing token
-    if (!is.null(token_time) && !is.null(token$expires_in)) {
+    if (!is_public && !is.null(token_time) && !is.null(token$expires_in)) {
         expiry <- token_time + token$expires_in
         if (length(expiry) && expiry < unclass(Sys.time())) {
             # expired
             try({
                 obm_refresh_token()
                 token <- get_obm("token")
-                }, silent = TRUE)
+            }, silent = TRUE)
         }
     }
 

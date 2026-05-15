@@ -1,6 +1,7 @@
-0f00e3ea1f9d71b063a25c762923c8c5 *DESCRIPTION
+7ece165f892bc3512dc0e5e38cf69d75 *DESCRIPTION
 949b0218b60155564984738a72a5eaee *NAMESPACE
-1af22b8317e45421c5af6158a127586c *R/base.R
+aeccfcbbe9389623a898c673f35506fd *NEWS.md
+de2f5bf8674fb35e0635070584934d17 *R/base.R
 7496db051c4bea403a377dd9b0784b21 *R/extra.R
 3e856c5562a13bb5846b72da0d056ea9 *R/obm_env.R
 01d21c10c895e88c7263de00b58a5a9f *R/zinit.R
@@ -18,7 +19,7 @@ c5dbf6a51b1f4c6cde80672fd58a2907 *man/get_password.Rd
 106fb69316638acfbb764e92116d2a28 *man/obm_computation.Rd
 c9cbcec5016a39bc1fc7327ac4bb2d30 *man/obm_connect.Rd
 8b84a85eb1051929ef0b10b18eeed4d8 *man/obm_env.Rd
-8bb8ae3fd120fc29a52f7d667e2634dd *man/obm_get.Rd
+af80b95423f52d208e28e66a810a5241 *man/obm_get.Rd
 104c98ed6a82b39684dd4a234207868a *man/obm_get_graphql.Rd
 d6b6b9ecd169ce9c2d4432146491e482 *man/obm_get_rest_v3.Rd
 f72f5376ac3bd53c22e622b0f294855a *man/obm_init.Rd
